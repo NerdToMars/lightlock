@@ -15,15 +15,7 @@
       "$lib/*": ["./src/lib/*"]
     }
   },
-  "plugins": [
-    {
-      "name": "daisyui"
-    }
 
-  ],
-  "daisyui": {
-    "themes": ["light", "dark", "cupcake"]
-  }
   // Path aliases are handled by https://kit.svelte.dev/docs/configuration#alias
   // except $lib which is handled by https://kit.svelte.dev/docs/configuration#files
   //
