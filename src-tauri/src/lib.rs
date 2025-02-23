@@ -79,7 +79,9 @@ fn fetch_camera_feed(app: AppHandle, on_event: Channel<DownloadEvent>) {
         
         // Convert to base64
         let base64 = STANDARD.encode(&buf.to_vec());
-        
+        // print first 100 characters of the base64 string
+        // println!("Base64: {}", &base64[1400..1500]);
+        println!("frame_id: {}", *frame_id);
         on_event.send(DownloadEvent::Started {
             image_data: &base64,
             download_id: *frame_id,

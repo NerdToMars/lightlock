@@ -7,97 +7,96 @@
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { invoke, Channel } from '@tauri-apps/api/core';
+  import { onMount } from "svelte";
+  import { invoke, Channel } from "@tauri-apps/api/core";
 
   // Basic props for camera info
   export let label: string = "Camera Feed";
   export let no_camera_feed_label: string = "No camera feed";
   let imageSrc: string = ""; // path/URL to camera image
-  let imageDivHtml: string = "<img src='{imageSrc}' alt='{label}' class='w-full h-full object-cover' />"; // HTML for the image
+  // let imageDivHtml: string =
+    // "<img src='{imageSrc}' alt='{label}' class='w-full h-full object-cover' />"; // HTML for the image
   // Example status data to display
   export let status: CameraStatus = {
     distance: 0,
     frameId: 0,
-    isRecording: false
+    isRecording: false,
   };
 
   type DownloadEvent =
-  | {
-      event: 'started';
-      data: {
-        imageData: string;
-        downloadId: number;
-        contentLength: number;
+    | {
+        event: "started";
+        data: {
+          imageData: string;
+          downloadId: number;
+          contentLength: number;
+        };
+      }
+    | {
+        event: "progress";
+        data: {
+          downloadId: number;
+          chunkLength: number;
+        };
+      }
+    | {
+        event: "finished";
+        data: {
+          downloadId: number;
+        };
       };
-    }
-  | {
-      event: 'progress';
-      data: {
-        downloadId: number;
-        chunkLength: number;
-      };
-    }
-  | {
-      event: 'finished';
-      data: {
-        downloadId: number;
-      };
-    };
-
-  const onEvent = new Channel<DownloadEvent>();
-  onEvent.onmessage = (message) => {
-    if (message.event === 'started') {
-      status.frameId = message.data.downloadId;
-      status = {
-        ...status,
-        frameId: message.data.downloadId,
-      };
-      imageSrc = `data:image/jpeg;base64,${message.data.imageData}`;
-      imageDivHtml = `<img src='${imageSrc}' alt='${label}' class='w-full h-full object-cover' />`;
-
-    }
-
-    no_camera_feed_label = `Camera Feed event: ${message.event}`;
-    console.log('got camera feed ', message);
-  };
-
 
   export let int_cnt: number = 0;
 
   onMount(() => {
     // initCamera();
     const interval = setInterval(async () => {
-      await invoke('fetch_camera_feed', { onEvent });
+      const onEvent = new Channel<DownloadEvent>();
+      onEvent.onmessage = (message) => {
+        if (message.event === "started") {
+          status.frameId = message.data.downloadId;
+          status = {
+            ...status,
+            frameId: message.data.downloadId,
+          };
+          imageSrc = `data:image/jpeg;base64,${message.data.imageData}`;
+          // imageDivHtml = `<img src='${imageSrc}' alt='${label}' class='w-full h-full object-cover' />`;
+        }
+
+        no_camera_feed_label = `Camera Feed event: ${message.event}`;
+        console.log("got camera feed ", message);
+      };
+      await invoke("fetch_camera_feed", { onEvent });
       int_cnt++;
       no_camera_feed_label = `Camera Feed event: ${int_cnt}`;
       // status.frameId = int_cnt;
-      status = {
-        ...status,
-        frameId: int_cnt,
-      };
-    }, 1000);
+      // status = {
+      //   ...status,
+      //   frameId: int_cnt,
+      // };
+    }, 100);
     return () => clearInterval(interval);
   });
-  
 
-  // If you want a clickable "Stop" or "Record" button, 
+  // If you want a clickable "Stop" or "Record" button,
   // add a function here (e.g., handleStop) and remove pointer-events-none below.
 </script>
-  
+
 <!-- Outer container can be styled or placed in a card, etc. -->
 <div class="relative w-full h-64 bg-black overflow-hidden">
   {#if imageSrc}
-    {@html imageDivHtml}
+    <!-- {@html imageDivHtml} -->
     <!-- The camera feed -->
-    <!-- <img
+    <img
       src={imageSrc}
       alt={label}
       class="w-full h-full object-cover"
-    /> -->
+    />
   {:else}
     <!-- Fallback if no imageSrc -->
-    <div class="absolute inset-0 flex items-center justify-center text-gray-400">
+    <div
+      class="absolute inset-0 flex items-center justify-center text-gray-400"
+    >
       {no_camera_feed_label}
     </div>
   {/if}
@@ -122,7 +121,9 @@
 
     <!-- Top-right recording indicator -->
     {#if status.isRecording}
-      <div class="absolute top-2 right-2 flex items-center gap-1 text-red-500 font-bold">
+      <div
+        class="absolute top-2 right-2 flex items-center gap-1 text-red-500 font-bold"
+      >
         <!-- blinking dot -->
         <div class="animate-ping h-2 w-2 rounded-full bg-red-600"></div>
         <span>REC</span>
