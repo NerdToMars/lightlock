@@ -1,13 +1,19 @@
 <!-- src/routes/+page.svelte -->
 <script lang="ts">
   import CameraPreview from '$lib/CameraPreview.svelte';
+  import type { CameraStatus } from '$lib/CameraPreview.svelte';
   import ProcessControl from '$lib/ProcessControl.svelte';
+
+  let cameraStatus: CameraStatus = {
+    distance: 10,
+    altitude: 10,
+    battery: 0,
+    isRecording: true,
+  };
 </script>
 
-<h1>Welcome to the Home Page</h1>
-
 <div class="camera-container">
-  <CameraPreview />
+  <CameraPreview status={cameraStatus} />
   <CameraPreview />
 </div>
 
