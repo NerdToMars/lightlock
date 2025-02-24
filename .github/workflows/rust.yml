@@ -69,8 +69,11 @@ jobs:
         shell: powershell
         run: |
           choco install llvm opencv -y
-          # Set OpenCV environment variables
-          echo "OPENCV_LINK_LIBS=opencv_world490" >> $env:GITHUB_ENV
+          # Get OpenCV version and set it as environment variable
+          $opencvVersion = (choco list opencv -r).Split("|")[1].Replace(".", "")
+          echo "OPENCV_VERSION=$opencvVersion" >> $env:GITHUB_ENV
+          # Set OpenCV environment variables with dynamic version
+          echo "OPENCV_LINK_LIBS=opencv_world$env:OPENCV_VERSION" >> $env:GITHUB_ENV
           echo "OPENCV_LINK_PATHS=C:\tools\opencv\build\x64\vc16\lib" >> $env:GITHUB_ENV
           echo "OPENCV_INCLUDE_PATHS=C:\tools\opencv\build\include" >> $env:GITHUB_ENV
           # Add OpenCV DLLs to PATH
@@ -81,6 +84,16 @@ jobs:
       - name: install frontend dependencies
         run: npm install # change this to npm, pnpm or bun depending on which one you use.
 
+      # Add Rust caching
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri"
+          cache-on-failure: true
+          cache-all-crates: true
+          shared-key: "tauri-build"
+          env-vars: "CARGO CC CFLAGS CXX CMAKE RUST OPENCV"
+      
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
