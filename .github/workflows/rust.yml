@@ -68,31 +68,62 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: powershell
         run: |
-          choco install llvm opencv -y
-          # Get OpenCV version and format it correctly (remove dots)
+          choco install opencv llvm -y
+          # Get OpenCV version and format it correctly
           $opencvVersion = "411"  # Hardcoding for 4.11.0
           echo "OPENCV_VERSION=$opencvVersion" >> $env:GITHUB_ENV
-          # Set OpenCV environment variables with correct paths for 4.11.0
+          
+          # Define the expected library path
+          $libPath = "C:\tools\opencv\build\x64\vc16\lib\opencv_world$opencvVersion.lib"
+          
+          # Check if the library exists
+          if (-not (Test-Path $libPath)) {
+            Write-Error "OpenCV library not found at: $libPath"
+            Write-Host "Directory contents:"
+            Get-ChildItem "C:\tools\opencv\build\x64\vc16\lib\"
+            exit 1
+          }
+          Write-Host "Found OpenCV library at: $libPath"
+          
+          # Set OpenCV environment variables with correct paths for MSVC
           echo "OPENCV_LINK_LIBS=opencv_world$opencvVersion" >> $env:GITHUB_ENV
-          echo "OPENCV_LINK_PATHS=C:\tools\opencv\build\x64\mingw\lib" >> $env:GITHUB_ENV
+          echo "OPENCV_LINK_PATHS=C:\tools\opencv\build\x64\vc16\lib" >> $env:GITHUB_ENV
           echo "OPENCV_INCLUDE_PATHS=C:\tools\opencv\build\include" >> $env:GITHUB_ENV
           # Add OpenCV DLLs to PATH
-          echo "C:\tools\opencv\build\x64\mingw\bin" >> $env:GITHUB_PATH
-          # Set VCPKGRS_DYNAMIC for dynamic linking
-          echo "VCPKGRS_DYNAMIC=1" >> $env:GITHUB_ENV
+          echo "C:\tools\opencv\build\x64\vc16\bin" >> $env:GITHUB_PATH
+          # Set environment variable to use MSVC
+          echo "OPENCV_MSVC_BUILD=1" >> $env:GITHUB_ENV
+          
+          # Check if DLL exists before copying
+          $dllPath = "C:\tools\opencv\build\x64\vc16\bin\opencv_world$opencvVersion.dll"
+          if (-not (Test-Path $dllPath)) {
+            Write-Error "OpenCV DLL not found at: $dllPath"
+            Write-Host "Directory contents:"
+            Get-ChildItem "C:\tools\opencv\build\x64\vc16\bin\"
+            exit 1
+          }
+          Write-Host "Found OpenCV DLL at: $dllPath"
+          Copy-Item $dllPath C:\Windows\System32\
 
       - name: install frontend dependencies
         run: npm install # change this to npm, pnpm or bun depending on which one you use.
 
-      # Add Rust caching
+      # Add Rust caching with Windows-specific configuration
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: "src-tauri"
           cache-on-failure: true
+          # Only cache dependencies, not the entire project
           cache-all-crates: true
-          shared-key: "tauri-build"
-          env-vars: "CARGO CC CFLAGS CXX CMAKE RUST OPENCV"
+          # Create separate caches for each OS and target architecture
+          shared-key: "${{ runner.os }}-${{ matrix.args }}"
+          # Track only the essential environment variables
+          env-vars: |
+            CARGO
+            RUST
+            OPENCV_VERSION
+            OPENCV_MSVC_BUILD
       
       - uses: tauri-apps/tauri-action@v0
         env:
