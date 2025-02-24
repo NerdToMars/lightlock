@@ -62,22 +62,22 @@ jobs:
       - name: install MacOS dependencies (M1 and above)
         if: matrix.platform == 'macos-latest'
         run: |
-          brew install opencv llvm clang
+          brew install opencv llvm
 
       - name: Install Windows dependencies
         if: matrix.platform == 'windows-latest'
         shell: powershell
         run: |
           choco install llvm opencv -y
-          # Get OpenCV version and set it as environment variable
-          $opencvVersion = (choco list opencv -r).Split("|")[1].Replace(".", "")
+          # Get OpenCV version and format it correctly (remove dots)
+          $opencvVersion = "411"  # Hardcoding for 4.11.0
           echo "OPENCV_VERSION=$opencvVersion" >> $env:GITHUB_ENV
-          # Set OpenCV environment variables with dynamic version
-          echo "OPENCV_LINK_LIBS=opencv_world$env:OPENCV_VERSION" >> $env:GITHUB_ENV
-          echo "OPENCV_LINK_PATHS=C:\tools\opencv\build\x64\vc16\lib" >> $env:GITHUB_ENV
+          # Set OpenCV environment variables with correct paths for 4.11.0
+          echo "OPENCV_LINK_LIBS=opencv_world$opencvVersion" >> $env:GITHUB_ENV
+          echo "OPENCV_LINK_PATHS=C:\tools\opencv\build\x64\mingw\lib" >> $env:GITHUB_ENV
           echo "OPENCV_INCLUDE_PATHS=C:\tools\opencv\build\include" >> $env:GITHUB_ENV
           # Add OpenCV DLLs to PATH
-          echo "C:\tools\opencv\build\x64\vc16\bin" >> $env:GITHUB_PATH
+          echo "C:\tools\opencv\build\x64\mingw\bin" >> $env:GITHUB_PATH
           # Set VCPKGRS_DYNAMIC for dynamic linking
           echo "VCPKGRS_DYNAMIC=1" >> $env:GITHUB_ENV
 
