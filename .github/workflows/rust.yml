@@ -64,6 +64,20 @@ jobs:
         run: |
           brew install opencv llvm clang
 
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows-latest'
+        shell: powershell
+        run: |
+          choco install llvm opencv -y
+          # Set OpenCV environment variables
+          echo "OPENCV_LINK_LIBS=opencv_world490" >> $env:GITHUB_ENV
+          echo "OPENCV_LINK_PATHS=C:\tools\opencv\build\x64\vc16\lib" >> $env:GITHUB_ENV
+          echo "OPENCV_INCLUDE_PATHS=C:\tools\opencv\build\include" >> $env:GITHUB_ENV
+          # Add OpenCV DLLs to PATH
+          echo "C:\tools\opencv\build\x64\vc16\bin" >> $env:GITHUB_PATH
+          # Set VCPKGRS_DYNAMIC for dynamic linking
+          echo "VCPKGRS_DYNAMIC=1" >> $env:GITHUB_ENV
+
       - name: install frontend dependencies
         run: npm install # change this to npm, pnpm or bun depending on which one you use.
 
@@ -77,3 +91,4 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
