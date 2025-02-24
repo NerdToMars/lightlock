@@ -64,47 +64,38 @@ jobs:
         run: |
           brew install opencv llvm
 
+      - name: Set clang environment on macOS
+        if: matrix.platform == 'macos-latest'
+        run: |
+          echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+          echo "DYLD_FALLBACK_LIBRARY_PATH=$(brew --prefix llvm)/lib" >> $GITHUB_ENV
+      # Windows dependencies
       - name: Install Windows dependencies
         if: matrix.platform == 'windows-latest'
         shell: powershell
         run: |
-          choco install opencv llvm -y
-          # Get OpenCV version and format it correctly
-          $opencvVersion = "411"  # Hardcoding for 4.11.0
-          echo "OPENCV_VERSION=$opencvVersion" >> $env:GITHUB_ENV
+          # 1. Install LLVM and a known version of OpenCV
+          choco install llvm -y
+          choco install opencv --version=4.11.0 -y
           
-          # Define the expected library path
-          $libPath = "C:\tools\opencv\build\x64\vc16\lib\opencv_world$opencvVersion.lib"
-          
-          # Check if the library exists
-          if (-not (Test-Path $libPath)) {
-            Write-Error "OpenCV library not found at: $libPath"
-            Write-Host "Directory contents:"
-            Get-ChildItem "C:\tools\opencv\build\x64\vc16\lib\"
-            exit 1
-          }
-          Write-Host "Found OpenCV library at: $libPath"
-          
-          # Set OpenCV environment variables with correct paths for MSVC
-          echo "OPENCV_LINK_LIBS=opencv_world$opencvVersion" >> $env:GITHUB_ENV
+          # 2. Make sure we know which numeric suffix the library has
+          #    For OpenCV 4.1.1, it’s typically "411", so:
+          $env:OPENCV_VERSION = "4110"
+
+          # 3. Set library, include, and linking environment variables
+          #    opencv_world411.lib/dll should exist under C:\tools\opencv\build\x64\vc16\{lib, bin}
+          echo "OPENCV_LINK_LIBS=opencv_world$($env:OPENCV_VERSION)" >> $env:GITHUB_ENV
           echo "OPENCV_LINK_PATHS=C:\tools\opencv\build\x64\vc16\lib" >> $env:GITHUB_ENV
           echo "OPENCV_INCLUDE_PATHS=C:\tools\opencv\build\include" >> $env:GITHUB_ENV
-          # Add OpenCV DLLs to PATH
-          echo "C:\tools\opencv\build\x64\vc16\bin" >> $env:GITHUB_PATH
-          # Set environment variable to use MSVC
-          echo "OPENCV_MSVC_BUILD=1" >> $env:GITHUB_ENV
           
-          # Check if DLL exists before copying
-          $dllPath = "C:\tools\opencv\build\x64\vc16\bin\opencv_world$opencvVersion.dll"
-          if (-not (Test-Path $dllPath)) {
-            Write-Error "OpenCV DLL not found at: $dllPath"
-            Write-Host "Directory contents:"
-            Get-ChildItem "C:\tools\opencv\build\x64\vc16\bin\"
-            exit 1
-          }
-          Write-Host "Found OpenCV DLL at: $dllPath"
-          Copy-Item $dllPath C:\Windows\System32\
-
+          # 4. (Optional) If the crate needs clang (e.g., for BINDING_GENERATOR=clang),
+          #    set LIBCLANG_PATH. Usually installed under Program Files\LLVM\bin.
+          $clangPath = (Get-Command clang).Source | Split-Path
+          echo "LIBCLANG_PATH=$clangPath" >> $env:GITHUB_ENV
+          
+          # 5. Add the OpenCV \bin folder to PATH
+          echo "C:\tools\opencv\build\x64\vc16\bin" >> $env:GITHUB_PATH      
+          
       - name: install frontend dependencies
         run: npm install # change this to npm, pnpm or bun depending on which one you use.
 
