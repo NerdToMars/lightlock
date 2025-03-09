@@ -16,6 +16,7 @@ use opencv::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use cameleon::u3v;
 use lazy_static::lazy_static;
 use serde::Serialize;
 use std::sync::Mutex;
@@ -28,6 +29,11 @@ lazy_static! {
 
 lazy_static! {
     static ref FRAME_ID: Mutex<usize> = Mutex::new(0);
+}
+
+lazy_static! {
+    static ref CAMERA_HANDLE: Mutex<Vec<cameleon::Camera<u3v::ControlHandle, u3v::StreamHandle>>> =
+        Mutex::new(vec![]);
 }
 
 #[tauri::command]
@@ -96,15 +102,27 @@ pub fn run() {
     use cameleon::u3v;
 
     // Enumerates all cameras connected to the host.
-    let cameras = u3v::enumerate_cameras().unwrap();
+    let mut cameras: Vec<cameleon::Camera<u3v::ControlHandle, u3v::StreamHandle>> =
+        u3v::enumerate_cameras().expect("All connected cameras should have GenICam 3.0 interface");
 
     if cameras.is_empty() {
         println!("no camera found");
         return;
     } else {
-        for camera in &cameras {
+        for camera in &mut cameras {
             println!("{:#?}", camera.info());
+
+            // Open the camera.
+            camera.open().unwrap();
+            // Load `GenApi` context.
+            camera.load_context().unwrap();
+
+            // Start streaming. Channel capacity is set to 3.
+            let payload_rx = camera.start_streaming(3).unwrap();
         }
+        let mut camera_handles = CAMERA_HANDLE.lock().unwrap();
+
+        camera_handles.extend(cameras.into_iter());
     }
 
     // let aravis = Aravis::initialize().unwrap();

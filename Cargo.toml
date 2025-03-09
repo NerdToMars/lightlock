@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+
+members = ["leptos_reactive", "src-tauri"]
+
+
+# exclude = []
+
+# [[workspace.metadata.leptos]]
+# # project name
+# name = "leptos-project"
+# bin-package = "leptos_reactive"
+# lib-package = "leptos_reactive"
+
+# # more configuration parameters...
