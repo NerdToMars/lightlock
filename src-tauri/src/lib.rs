@@ -1,8 +1,12 @@
+use std::sync::Arc;
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 use std::thread;
 use std::time::Duration;
+use tauri::async_runtime::spawn;
 use tauri::Emitter;
 use tauri::Manager;
+
+use tauri::State;
 use tokio::io::AsyncReadExt;
 
 // use tauri::Manager; // for window.emit
@@ -16,12 +20,123 @@ use opencv::{
 };
 
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+use cameleon::payload::Payload;
+use cameleon::payload::PayloadReceiver;
 use cameleon::u3v;
+use cameleon::Camera;
+use cameleon::PayloadStream;
+
 use lazy_static::lazy_static;
 use serde::Serialize;
 use std::sync::Mutex;
 use tauri::{ipc::Channel, AppHandle};
 // use aravis::prelude::*;
+use tracing::{debug, error, info, trace, warn};
+
+#[derive(Default)]
+struct CameraController {
+    pub camera_handles: Vec<Camera<u3v::ControlHandle, u3v::StreamHandle>>,
+    pub camera_payload_rx: Vec<PayloadReceiver>,
+}
+
+#[derive(Default)]
+struct ImageDataFrame {
+    pub image_data: Vec<Payload>,
+}
+
+impl ImageDataFrame {
+    pub fn add_payload(&mut self, payload: Payload) {
+        self.image_data.push(payload);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.image_data.is_empty()
+    }
+}
+
+#[derive(Default)]
+struct DataQueue {
+    pub queue: Vec<ImageDataFrame>,
+}
+
+impl DataQueue {
+    pub fn add_image_data_frame(&mut self, image_data_frame: ImageDataFrame) {
+        // TODO: check if the queue is full
+        self.queue.push(image_data_frame);
+    }
+
+    pub fn get_latest_image_data_frame(&mut self) -> Option<ImageDataFrame> {
+        self.queue.pop()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+}
+
+impl CameraController {
+    pub fn init() -> Option<Self> {
+        // Enumerates all cameras connected to the host.
+        let mut cameras: Vec<cameleon::Camera<u3v::ControlHandle, u3v::StreamHandle>> =
+            u3v::enumerate_cameras()
+                .expect("All connected cameras should have GenICam 3.0 interface");
+
+        if cameras.is_empty() {
+            println!("init failed: no camera found");
+            info!("init failed: no camera found");
+            return None;
+        } else {
+            let mut payload_rxs = vec![];
+            for camera in &mut cameras {
+                println!("Get camera info: {:#?}", camera.info());
+
+                // Open the camera.
+                camera.open().unwrap();
+                // Load `GenApi` context.
+                let gen_api_context = camera.load_context().unwrap();
+                println!("GenApi context: {:#?}", gen_api_context);
+
+                // Start streaming. Channel capacity is set to 3.
+                let payload_rx = camera.start_streaming(3).unwrap();
+                let _img = payload_rx.recv_blocking();
+                match _img {
+                    Ok(payload) => {
+                        println!("payload: {:?}", payload.image_info());
+                    }
+                    Err(e) => {
+                        println!("blocking recv stream data error: {:?}", e);
+                    }
+                }
+                payload_rxs.push(payload_rx);
+            }
+
+            Some(CameraController {
+                camera_handles: cameras,
+                camera_payload_rx: payload_rxs,
+            })
+        }
+    }
+
+    pub async fn get_latest_frame(payload_rx: &Vec<PayloadReceiver>) -> ImageDataFrame {
+        let mut image_data_frame = ImageDataFrame::default();
+        for payload_rx in payload_rx {
+            match payload_rx.recv().await {
+                Ok(payload) => {
+                    image_data_frame.add_payload(payload);
+                }
+                Err(e) => {
+                    println!("stream data error: {:?}", e);
+                }
+            }
+        }
+        image_data_frame
+    }
+}
+
+// struct ImageBuffer {
+
+// }
 
 lazy_static! {
     static ref CAMERA: Mutex<Option<VideoCapture>> = Mutex::new(None);
@@ -34,6 +149,10 @@ lazy_static! {
 lazy_static! {
     static ref CAMERA_HANDLE: Mutex<Vec<cameleon::Camera<u3v::ControlHandle, u3v::StreamHandle>>> =
         Mutex::new(vec![]);
+}
+
+lazy_static! {
+    static ref CAMERA_CONTROLLER: Mutex<CameraController> = Mutex::new(CameraController::default());
 }
 
 #[tauri::command]
@@ -59,85 +178,86 @@ enum DownloadEvent<'a> {
     Finished { download_id: usize },
 }
 
-#[tauri::command]
-fn fetch_camera_feed(app: AppHandle, on_event: Channel<DownloadEvent>) {
-    let mut camera = CAMERA.lock().unwrap();
-    if camera.is_none() {
-        *camera = Some(VideoCapture::new(0, videoio::CAP_ANY).unwrap());
-    }
+type DataQueueRef = Arc<Mutex<DataQueue>>;
 
+#[tauri::command]
+fn fetch_camera_feed(data_queue: State<DataQueueRef>, on_event: Channel<DownloadEvent>) {
+    let frame = {
+        info!("fetching camera feed from app state");
+        let mut binding = data_queue.lock().unwrap();
+        binding.get_latest_image_data_frame()
+    };
+
+    let Some(image_data_frame) = frame else {
+        // println!("No frame found");
+        return;
+    };
+
+    println!("Fetching camera feed...");
     let mut frame_id = FRAME_ID.lock().unwrap();
     *frame_id += 1;
 
     // include jpg file in the resources
-    println!("Fetching camera feed...");
-    // println!("Message from Rust: {}", reader.id());
 
-    // let jpg_file = include_bytes!("test.jpg");
-    let mut frame = Mat::default();
-    if let Ok(_) = camera.as_mut().unwrap().read(&mut frame) {
-        // Encode frame as JPEG
-        let mut buf = Vector::new();
-        let params = Vector::new();
-        imgcodecs::imencode(".jpg", &frame, &mut buf, &params).unwrap();
+    // let mut buf = Vector::new();
+    // let params = Vector::new();
+    // imgcodecs::imencode(".jpg", &frame, &mut buf, &params).unwrap();
 
-        // Convert to base64
-        let base64 = STANDARD.encode(&buf.to_vec());
-        // print first 100 characters of the base64 string
-        // println!("Base64: {}", &base64[1400..1500]);
-        println!("frame_id: {}", *frame_id);
-        on_event
-            .send(DownloadEvent::Started {
-                image_data: &base64,
-                download_id: *frame_id,
-                content_length: 0,
-            })
-            .unwrap();
-    }
+    // Convert to base64
+    let base64 = "test";
+    // print first 100 characters of the base64 string
+    // println!("Base64: {}", &base64[1400..1500]);
+    println!("frame_id: {}", *frame_id);
+    on_event
+        .send(DownloadEvent::Started {
+            image_data: &base64,
+            download_id: *frame_id,
+            content_length: 0,
+        })
+        .unwrap();
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     println!("Running Tauri application...");
-    use cameleon::u3v;
+    let data_queue = Arc::new(Mutex::new(DataQueue::default()));
 
-    // Enumerates all cameras connected to the host.
-    let mut cameras: Vec<cameleon::Camera<u3v::ControlHandle, u3v::StreamHandle>> =
-        u3v::enumerate_cameras().expect("All connected cameras should have GenICam 3.0 interface");
-
-    if cameras.is_empty() {
-        println!("no camera found");
-        return;
-    } else {
-        for camera in &mut cameras {
-            println!("{:#?}", camera.info());
-
-            // Open the camera.
-            camera.open().unwrap();
-            // Load `GenApi` context.
-            camera.load_context().unwrap();
-
-            // Start streaming. Channel capacity is set to 3.
-            let payload_rx = camera.start_streaming(3).unwrap();
-        }
-        let mut camera_handles = CAMERA_HANDLE.lock().unwrap();
-
-        camera_handles.extend(cameras.into_iter());
+    let mut camera_payload_rx: Vec<PayloadReceiver> = vec![];
+    if let Some(camera_controller) = CameraController::init() {
+        camera_payload_rx = camera_controller.camera_payload_rx.clone();
     }
 
-    // let aravis = Aravis::initialize().unwrap();
-
-    // let devices = aravis.get_device_list();
-    // if devices.is_empty() {
-    // 	eprintln!("No devices found.");
-    // 	std::process::exit(1);
-    // } else {
-    // 	for device in &devices {
-    // 		println!("{:#?}", device);
-    // 	}
-    // }
-
     tauri::Builder::default()
+        .manage(Mutex::new(CameraController::init()))
+        .manage(data_queue.clone())
+        .setup(|_app| {
+            if !camera_payload_rx.is_empty() {
+                // let camera_payload_rx = camera_controller.lock().unwrap().camera_payload_rx.clone();
+                spawn(async move {
+                    loop {
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        println!("try to get latest frame");
+                        let image_data_frame =
+                            CameraController::get_latest_frame(&camera_payload_rx).await;
+
+                        println!("get latest frame");
+                        if !image_data_frame.is_empty() {
+                            println!(
+                                "data queue size: {}",
+                                data_queue.lock().unwrap().queue.len()
+                            );
+                            data_queue
+                                .lock()
+                                .unwrap()
+                                .add_image_data_frame(image_data_frame);
+                        } else {
+                            println!("but it's empty");
+                        }
+                    }
+                });
+            }
+            Ok(())
+        })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![greet, fetch_camera_feed])
         .run(tauri::generate_context!())
